@@ -90,7 +90,6 @@ class BattleScene {
 
 	constructor(battle: Battle, $frame: JQuery, $logFrame: JQuery) {
 		this.battle = battle;
-
 		$frame.addClass('battle');
 		this.$frame = $frame;
 		this.log = new BattleLog($logFrame[0] as HTMLDivElement, this);
@@ -109,7 +108,6 @@ class BattleScene {
 		let numericId = 0;
 		if (battle.id) {
 			numericId = parseInt(battle.id.slice(battle.id.lastIndexOf('-') + 1), 10);
-			if (this.battle.id.includes('digimon')) this.mod = 'digimon';
 		}
 		if (!numericId) {
 			numericId = Math.floor(Math.random() * 1000000);
@@ -117,7 +115,6 @@ class BattleScene {
 		this.numericId = numericId;
 		this.tooltips = new BattleTooltips(battle);
 		this.tooltips.listen($frame[0]);
-
 		this.preloadEffects();
 		// reset() is called during battle initialization, so it doesn't need to be called here
 	}
@@ -244,10 +241,16 @@ class BattleScene {
 	pause() {
 		this.stopAnimation();
 		this.updateBgm();
-		if (this.battle.resumeButton) {
-			this.$frame.append('<div class="playbutton"><button data-action="resume"><i class="fa fa-play icon-play"></i> Resume</button></div>');
-			this.$frame.find('div.playbutton button').click(this.battle.resumeButton);
+		if (this.battle.turn > 0) {
+			this.$frame.append('<div class="playbutton"><button name="play"><i class="fa fa-play icon-play"></i> Resume</button></div>');
+		} else {
+			this.$frame.append('<div class="playbutton"><button name="play"><i class="fa fa-play"></i> Play</button><br /><br /><button name="play-muted" class="startsoundchooser" style="font-size:10pt;display:none">Play (music off)</button></div>');
+			this.$frame.find('div.playbutton button[name=play-muted]').click(() => {
+				this.battle.setMute(true);
+				this.battle.play();
+			});
 		}
+		this.$frame.find('div.playbutton button[name=play]').click(() => this.battle.play());
 	}
 	resume() {
 		this.$frame.find('div.playbutton').remove();
@@ -687,6 +690,7 @@ class BattleScene {
 			if (i % 3 === 2) pokemonhtml += `</div><div class="teamicons">`;
 		}
 		pokemonhtml = '<div class="teamicons">' + pokemonhtml + '</div>';
+		console.log(pokemonhtml);
 		const $sidebar = (side.isFar ? this.$rightbar : this.$leftbar);
 		if (side.name) {
 			const ratinghtml = side.rating ? ` title="Rating: ${BattleLog.escapeHTML(side.rating)}"` : ``;
@@ -733,7 +737,7 @@ class BattleScene {
 				let spriteData = Dex.getSpriteData(pokemon, !!spriteIndex, {
 					gen: this.gen,
 					noScale: true,
-					mod: this.mod,
+					mod: this.battle.mod,
 				});
 				let y = 0;
 				let x = 0;
@@ -939,7 +943,7 @@ class BattleScene {
 		}
 	}
 	resetTurn() {
-		if (!this.battle.turn) {
+		if (this.battle.turn <= 0) {
 			this.$turn.html('');
 			return;
 		}
@@ -949,7 +953,7 @@ class BattleScene {
 		if (!this.animating) return;
 
 		const turn = this.battle.turn;
-		if (!turn) return;
+		if (turn <= 0) return;
 		const $prevTurn = this.$turn.children();
 		const $newTurn = $('<div class="turn has-tooltip" data-tooltip="field" data-ownheight="1">Turn ' + turn + '</div>');
 		$newTurn.css({
@@ -984,7 +988,7 @@ class BattleScene {
 	addPokemonSprite(pokemon: Pokemon) {
 		const sprite = new PokemonSprite(Dex.getSpriteData(pokemon, pokemon.side.isFar, {
 			gen: this.gen,
-			mod: this.mod,
+			mod: this.battle.mod,
 		}), {
 			x: pokemon.side.x,
 			y: pokemon.side.y,
@@ -1439,6 +1443,7 @@ class BattleScene {
 	/////////////////////////////////////////////////////////////////////
 
 	setFrameHTML(html: any) {
+		this.customControls = true;
 		this.$frame.html(html);
 	}
 	setControlsHTML(html: any) {
@@ -1538,16 +1543,16 @@ class BattleScene {
 	}
 	updateBgm() {
 		/**
-		 * - not playing in non-battle RoomGames (Playback.Uninitialized)
-		 * - not playing at team preview in replays (Playback.Ready)
-		 * - playing at team preview in games (Playback.Playing)
-		 * - playing during the game (Playback.Playing)
+		 * - not playing in non-battle RoomGames before `|start` (turn -1)
+		 * - not playing at team preview in replays (paused)
+		 * - playing at team preview in games (turn 0)
+		 * - playing during the game (turn 1+)
 		 * - not playing while paused
-		 * - playing while waiting for players to choose moves (Playback.Finished)
+		 * - playing while waiting for players to choose moves (atQueueEnd && !ended)
 		 * - not playing after the game has ended
 		 */
-		const nowPlaying = this.battle.playbackState > Playback.Ready && (
-			this.battle.started && !this.battle.ended && !this.battle.paused
+		const nowPlaying = (
+			this.battle.turn >= 0 && !this.battle.ended && !this.battle.paused
 		);
 		if (nowPlaying) {
 			if (!this.bgm) this.rollBgm();
@@ -1855,7 +1860,7 @@ class PokemonSprite extends Sprite {
 		if (this.$sub) return;
 		const subsp = Dex.getSpriteData('substitute', this.isFrontSprite, {
 			gen: this.scene.gen,
-			mod: this.scene.mod,
+			mod: this.scene.battle.mod,
 		});
 		this.subsp = subsp;
 		this.$sub = $('<img src="' + subsp.url + '" style="display:block;opacity:0;position:absolute"' + (subsp.pixelated ? ' class="pixelated"' : '') + ' />');
@@ -1970,7 +1975,7 @@ class PokemonSprite extends Sprite {
 			if (!this.oldsp) this.oldsp = this.sp;
 			this.sp = Dex.getSpriteData(pokemon, this.isFrontSprite, {
 				gen: this.scene.gen,
-				mod: this.scene.mod,
+				mod: this.scene.battle.mod,
 			});
 		} else if (this.oldsp) {
 			this.sp = this.oldsp;
@@ -2363,7 +2368,7 @@ class PokemonSprite extends Sprite {
 		if (!this.scene.animating && !isPermanent) return;
 		let sp = Dex.getSpriteData(pokemon, this.isFrontSprite, {
 			gen: this.scene.gen,
-			mod: this.scene.mod,
+			mod: this.scene.battle.mod,
 		});
 		let oldsp = this.sp;
 		if (isPermanent) {
