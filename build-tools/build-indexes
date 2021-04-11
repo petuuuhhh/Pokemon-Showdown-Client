@@ -1268,6 +1268,10 @@ process.stdout.write("Building `data/teambuilder-tables.js`... ");
 						overrideMoveInfo[id][key] = JSON.parse(modString);
 					}
 				}
+				if (baseEntry.isNonstandard && !modEntry.isNonstandard) {
+					if (!overrideMoveInfo[id]) overrideMoveInfo[id] = {};
+					overrideMoveInfo[id]['isNonstandard'] = false;
+				}
 			}
 			//abilities
 			const fullAbilityName = {};
